@@ -1,184 +1,224 @@
 import streamlit as st
+import sqlite3
 import datetime
 
 # -------------------------------
-# In-memory storage
+# Database Setup (Temporary SQLite)
 # -------------------------------
-patients = []
-doctors = []
-appointments = []
-appointment_history = []
+def create_connection():
+    conn = sqlite3.connect("hospital_temp.db", check_same_thread=False)
+    c = conn.cursor()
+    
+    # Create tables if not exists
+    c.execute('''CREATE TABLE IF NOT EXISTS Patients (
+                    PatientID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name TEXT,
+                    Gender TEXT,
+                    DateOfBirth TEXT,
+                    Address TEXT,
+                    PhoneNumber TEXT)''')
 
-patient_id_counter = 1
-doctor_id_counter = 1
-appointment_id_counter = 1
+    c.execute('''CREATE TABLE IF NOT EXISTS Doctors (
+                    DoctorID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    Name TEXT,
+                    Specialization TEXT,
+                    ContactInformation TEXT)''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS Appointments (
+                    AppointmentID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    PatientID INTEGER,
+                    DoctorID INTEGER,
+                    AppointmentDate TEXT,
+                    AppointmentTime TEXT,
+                    FOREIGN KEY (PatientID) REFERENCES Patients(PatientID),
+                    FOREIGN KEY (DoctorID) REFERENCES Doctors(DoctorID))''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS AppointmentHist (
+                    HistoryID INTEGER PRIMARY KEY AUTOINCREMENT,
+                    AppointmentID INTEGER,
+                    PatientID INTEGER,
+                    DoctorID INTEGER,
+                    AppointmentDate TEXT,
+                    AppointmentTime TEXT)''')
+    
+    conn.commit()
+    return conn, c
+
+conn, cursor = create_connection()
 
 # -------------------------------
 # Helper Functions
 # -------------------------------
-def add_patient(name, gender, dob, address, phone):
-    global patient_id_counter
-    patient = {
-        "id": patient_id_counter,
-        "name": name,
-        "gender": gender,
-        "dob": dob,
-        "address": address,
-        "phone": phone
-    }
-    patients.append(patient)
-    patient_id_counter += 1
-    return patient
+def get_available_doctors():
+    cursor.execute("SELECT * FROM Doctors")
+    return cursor.fetchall()
 
-def add_doctor(name, specialization, contact):
-    global doctor_id_counter
-    doctor = {
-        "id": doctor_id_counter,
-        "name": name,
-        "specialization": specialization,
-        "contact": contact
-    }
-    doctors.append(doctor)
-    doctor_id_counter += 1
-    return doctor
+def get_available_patients():
+    cursor.execute("SELECT * FROM Patients")
+    return cursor.fetchall()
+
+def get_patient_by_name(name):
+    cursor.execute("SELECT * FROM Patients WHERE Name=?", (name,))
+    return cursor.fetchall()
+
+def get_doctor_by_name(name):
+    cursor.execute("SELECT * FROM Doctors WHERE Name=?", (name,))
+    return cursor.fetchall()
 
 def book_appointment(patient_id, doctor_id, date_slot, time_slot):
-    global appointment_id_counter
-    appointment = {
-        "id": appointment_id_counter,
-        "patient_id": patient_id,
-        "doctor_id": doctor_id,
-        "date": date_slot,
-        "time": time_slot
-    }
-    appointments.append(appointment)
-    appointment_history.append(appointment.copy())
-    appointment_id_counter += 1
-    return appointment
+    cursor.execute("""INSERT INTO Appointments (PatientID, DoctorID, AppointmentDate, AppointmentTime) 
+                      VALUES (?, ?, ?, ?)""", (patient_id, doctor_id, date_slot, time_slot))
+    conn.commit()
+    last_id = cursor.lastrowid
 
-def get_patient_by_id(pid):
-    return next((p for p in patients if p["id"] == pid), None)
+    cursor.execute("""INSERT INTO AppointmentHist (AppointmentID, PatientID, DoctorID, AppointmentDate, AppointmentTime) 
+                      VALUES (?, ?, ?, ?, ?)""", (last_id, patient_id, doctor_id, date_slot, time_slot))
+    conn.commit()
 
-def get_doctor_by_id(did):
-    return next((d for d in doctors if d["id"] == did), None)
+def get_appointments_by_doctor(doctor_id):
+    cursor.execute("SELECT * FROM Appointments WHERE DoctorID=?", (doctor_id,))
+    return cursor.fetchall()
 
-def delete_patient(pid):
-    global patients
-    patients = [p for p in patients if p["id"] != pid]
+def delete_appointment(appointment_id):
+    cursor.execute("DELETE FROM Appointments WHERE AppointmentID=?", (appointment_id,))
+    conn.commit()
 
-def delete_doctor(did):
-    global doctors
-    doctors = [d for d in doctors if d["id"] != did]
-
-def delete_appointment(aid):
-    global appointments
-    appointments = [a for a in appointments if a["id"] != aid]
+def get_appointment_history(patient_id):
+    cursor.execute("SELECT * FROM AppointmentHist WHERE PatientID=?", (patient_id,))
+    return cursor.fetchall()
 
 # -------------------------------
 # Streamlit App
 # -------------------------------
 def main():
-    st.title("🏥 Hospital Management System )")
+    st.title("🏥 Hospital Management System (Temporary DB)")
 
     option = st.sidebar.selectbox(
         "Select an Operation",
         ("Book Appointment", "Manage Appointment", "Search", "Create Details",
-         "Patient History", "Edit Details", "List Patients And Doctors", "Delete")
+         "Patient History", "List Patients And Doctors", "Delete")
     )
 
-    # ✅ Create Patient / Doctor
+    # ✅ Create Details
     if option == "Create Details":
-        select_option = st.sidebar.selectbox("Select:", ["Doctor", "Patient"])
+        select_option = st.radio("Select Type", ["Patient", "Doctor"])
         
         if select_option == "Patient":
             st.subheader("➕ Create Patient")
             name = st.text_input("Name")
-            gender = st.text_input("Gender")
+            gender = st.selectbox("Gender", ["Male", "Female", "Other"])
             dob = st.date_input("Date of Birth")
             address = st.text_input("Address")
-            phone = st.text_input("Phone")
-            if st.button("Add Patient"):
-                patient = add_patient(name, gender, dob, address, phone)
-                st.success(f"Patient Added: {patient}")
+            phone = st.text_input("Phone Number")
+            if st.button("Save Patient"):
+                cursor.execute("INSERT INTO Patients (Name, Gender, DateOfBirth, Address, PhoneNumber) VALUES (?, ?, ?, ?, ?)",
+                               (name, gender, dob.strftime("%Y-%m-%d"), address, phone))
+                conn.commit()
+                st.success("✅ Patient Added Successfully!")
 
-        elif select_option == "Doctor":
+        else:
             st.subheader("➕ Create Doctor")
             name = st.text_input("Name")
             spec = st.text_input("Specialization")
             cont = st.text_input("Contact Info")
-            if st.button("Add Doctor"):
-                doctor = add_doctor(name, spec, cont)
-                st.success(f"Doctor Added: {doctor}")
+            if st.button("Save Doctor"):
+                cursor.execute("INSERT INTO Doctors (Name, Specialization, ContactInformation) VALUES (?, ?, ?)",
+                               (name, spec, cont))
+                conn.commit()
+                st.success("✅ Doctor Added Successfully!")
 
-    # ✅ List Patients & Doctors
+    # ✅ List Records
     elif option == "List Patients And Doctors":
         st.subheader("📋 Patients")
-        st.table(patients)
+        st.table(get_available_patients())
+
         st.subheader("📋 Doctors")
-        st.table(doctors)
+        st.table(get_available_doctors())
 
     # ✅ Delete
     elif option == "Delete":
         st.subheader("🗑️ Delete Patient")
-        pid = st.number_input("Enter Patient ID", min_value=1, step=1)
+        pid = st.number_input("Enter Patient ID", min_value=1)
         if st.button("Delete Patient"):
-            delete_patient(pid)
-            st.success("Patient deleted")
+            cursor.execute("DELETE FROM Patients WHERE PatientID=?", (pid,))
+            conn.commit()
+            st.success("✅ Patient Deleted!")
 
         st.subheader("🗑️ Delete Doctor")
-        did = st.number_input("Enter Doctor ID", min_value=1, step=1)
+        did = st.number_input("Enter Doctor ID", min_value=1)
         if st.button("Delete Doctor"):
-            delete_doctor(did)
-            st.success("Doctor deleted")
+            cursor.execute("DELETE FROM Doctors WHERE DoctorID=?", (did,))
+            conn.commit()
+            st.success("✅ Doctor Deleted!")
 
     # ✅ Book Appointment
     elif option == "Book Appointment":
         st.subheader("📅 Book Appointment")
-        if not patients or not doctors:
-            st.warning("Add patients and doctors first!")
-        else:
-            patient_id = st.selectbox("Select Patient", [p["id"] for p in patients], format_func=lambda x: get_patient_by_id(x)["name"])
-            doctor_id = st.selectbox("Select Doctor", [d["id"] for d in doctors], format_func=lambda x: get_doctor_by_id(x)["name"])
+        patients = get_available_patients()
+        doctors = get_available_doctors()
+
+        if patients and doctors:
+            patient_map = {p[0]: p[1] for p in patients}
+            doctor_map = {d[0]: d[1] for d in doctors}
+
+            selected_patient = st.selectbox("Select Patient", list(patient_map.keys()), format_func=lambda x: patient_map[x])
+            selected_doctor = st.selectbox("Select Doctor", list(doctor_map.keys()), format_func=lambda x: doctor_map[x])
+
             date_slot = st.date_input("Date")
-            time_input = st.text_input("Time (e.g., 10:00 AM)")
+            time_input = st.text_input("Time (HH:MM)")
+
             if st.button("Book"):
-                time_slot = datetime.datetime.strptime(time_input, "%I:%M %p").strftime("%H:%M")
-                appt = book_appointment(patient_id, doctor_id, date_slot, time_slot)
-                st.success(f"Appointment Booked: {appt}")
+                if time_input:
+                    book_appointment(selected_patient, selected_doctor, date_slot.strftime("%Y-%m-%d"), time_input)
+                    st.success("✅ Appointment Booked!")
+                else:
+                    st.error("Please enter a valid time.")
+        else:
+            st.warning("⚠️ Add at least one patient and doctor first.")
 
     # ✅ Manage Appointment
     elif option == "Manage Appointment":
-        st.subheader("📂 Manage Appointments")
-        if not appointments:
-            st.info("No appointments found")
+        st.subheader("🗂️ Manage Appointments")
+        doctors = get_available_doctors()
+        if doctors:
+            doctor_map = {d[0]: d[1] for d in doctors}
+            selected_doctor = st.selectbox("Select Doctor", list(doctor_map.keys()), format_func=lambda x: doctor_map[x])
+            appointments = get_appointments_by_doctor(selected_doctor)
+
+            if appointments:
+                for appt in appointments:
+                    st.write(appt)
+                    if st.button(f"Delete Appointment {appt[0]}"):
+                        delete_appointment(appt[0])
+                        st.success("✅ Appointment Deleted!")
+            else:
+                st.info("No appointments found for this doctor.")
         else:
-            for appt in appointments:
-                st.write(appt)
-                if st.button(f"Delete Appointment {appt['id']}"):
-                    delete_appointment(appt["id"])
-                    st.success("Appointment deleted")
+            st.warning("⚠️ No doctors available.")
 
     # ✅ Patient History
     elif option == "Patient History":
-        st.subheader("📜 Patient History")
-        pid = st.number_input("Enter Patient ID", min_value=1, step=1)
-        hist = [a for a in appointment_history if a["patient_id"] == pid]
-        if hist:
-            st.table(hist)
+        st.subheader("📜 Patient Appointment History")
+        patients = get_available_patients()
+        if patients:
+            patient_map = {p[0]: p[1] for p in patients}
+            selected_patient = st.selectbox("Select Patient", list(patient_map.keys()), format_func=lambda x: patient_map[x])
+            history = get_appointment_history(selected_patient)
+            st.table(history)
         else:
-            st.info("No history found")
+            st.warning("⚠️ No patients available.")
 
     # ✅ Search
     elif option == "Search":
-        search_option = st.sidebar.selectbox("Search:", ["Doctor", "Patient"])
+        st.subheader("🔍 Search Records")
+        choice = st.radio("Search by", ["Doctor", "Patient"])
         name = st.text_input("Enter Name")
         if st.button("Search"):
-            if search_option == "Doctor":
-                results = [d for d in doctors if d["name"].lower() == name.lower()]
+            if choice == "Doctor":
+                st.table(get_doctor_by_name(name))
             else:
-                results = [p for p in patients if p["name"].lower() == name.lower()]
-            st.table(results if results else [])
+                st.table(get_patient_by_name(name))
+
 
 if __name__ == "__main__":
     main()
-
