@@ -78,7 +78,7 @@ def delete_appointment(aid):
 # Streamlit App
 # -------------------------------
 def main():
-    st.title("🏥 Hospital Management System (No Database)")
+    st.title("🏥 Hospital Management System )")
 
     option = st.sidebar.selectbox(
         "Select an Operation",
@@ -181,3 +181,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
