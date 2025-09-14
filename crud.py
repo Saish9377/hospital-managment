@@ -91,7 +91,7 @@ def get_appointment_history(patient_id):
 # Streamlit App
 # -------------------------------
 def main():
-    st.title("🏥 Hospital Management System (Temporary DB)")
+    st.title("🏥 Hospital Management System ")
 
     option = st.sidebar.selectbox(
         "Select an Operation",
@@ -222,3 +222,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
